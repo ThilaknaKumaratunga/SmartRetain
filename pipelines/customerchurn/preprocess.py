@@ -61,8 +61,7 @@ if __name__ == "__main__":
     churn = test.pop('Churn')
     test.insert(0, 'Churn', churn)
 
-    # --- Step 5: Save to CSV (no headers, no index) ---
-    base_dir = "data"  # change this to your directory
+    # --- Step 5: Save to CSV (no headers, no index) --- 
     train.to_csv(f"{base_dir}/train/train.csv", header=False, index=False)
     validation.to_csv(f"{base_dir}/validation/validation.csv", header=False, index=False)
     test.to_csv(f"{base_dir}/test/test.csv", header=False, index=False)

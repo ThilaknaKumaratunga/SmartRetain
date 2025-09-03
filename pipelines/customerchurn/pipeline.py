@@ -46,7 +46,6 @@ from sagemaker.inputs import TransformInput
 from sagemaker.workflow.steps import TransformStep
 from sagemaker.transformer import Transformer
 from sagemaker.pytorch.estimator import PyTorch
-from sagemaker.tuner import HyperparameterTuner
 from sagemaker.inputs import TrainingInput
 from sagemaker.workflow.steps import TuningStep
 from sagemaker.tuner import (
@@ -54,6 +53,9 @@ from sagemaker.tuner import (
     CategoricalParameter,
     ContinuousParameter,
     HyperparameterTuner,
+    HyperparameterTuningJobConfig, 
+    HyperbandStrategyConfig
+
 )
 
 BASE_DIR = os.path.dirname(os.path.realpath(__file__))
@@ -99,22 +101,25 @@ def get_pipeline(
     )
     processing_instance_type = ParameterString(
         name="ProcessingInstanceType",
-        default_value="ml.m5.xlarge"
+        default_value="ml.t3.medium"
     )
     training_instance_type = ParameterString(
         name="TrainingInstanceType",
-        default_value="ml.m5.xlarge"
+        default_value="ml.t3.medium"
     )
     input_data = ParameterString(
         name="InputData",
-        default_value="s3://{}/data/storedata_total.csv".format(default_bucket),
+        default_value="s3://{}/data/churn.csv".format(default_bucket),
     )
     batch_data = ParameterString(
         name="BatchData",
          default_value="s3://{}/data/batch/batch.csv".format(default_bucket),
     )
-    
-    # processing step for feature engineering
+    # -------------------------
+    # --- PROCESSING STEP ---
+    # -------------------------
+
+    #define the processor for the processing step
     sklearn_processor = SKLearnProcessor(
         framework_version=sklearn_processor_version,
         instance_type=processing_instance_type,
@@ -122,6 +127,8 @@ def get_pipeline(
         sagemaker_session=sagemaker_session,
         role=role,
     )
+
+    # processing step
     step_process = ProcessingStep(
         name="ChurnModelProcess",
         processor=sklearn_processor,
@@ -138,13 +145,20 @@ def get_pipeline(
         ],
         code=f"s3://{default_bucket}/input/code/preprocess.py",
     )
+
+    # -------------------------
+    # ------- ESTIMATOR -------
+    # -------------------------
     
     # training step for generating model artifacts
+
     model_path = f"s3://{default_bucket}/output"
+
+    # training container image
     image_uri = sagemaker.image_uris.retrieve(
         framework="xgboost",
         region=region,
-        version="1.0-1",
+        version="1.5-1",
         py_version="py3",
         instance_type=training_instance_type,
     )
@@ -155,16 +169,32 @@ def get_pipeline(
     "rate_drop":"0.3",
     "tweedie_variance_power":"1.4"
     }
+
+    # XGBoost estimator
+
+    base_job_name = "churn-train" 
+    checkpoint_in_bucket = "checkpoints"
+    checkpoint_s3_uri = f"s3://{default_bucket}/{base_job_name}/{checkpoint_in_bucket}"
+    checkpoint_local_path = "/opt/ml/checkpoints"
+
+    print("Checkpoint path:", checkpoint_s3_uri)
+
     xgb_train = Estimator(
         image_uri=image_uri,
         instance_type=training_instance_type,
         instance_count=1,
         hyperparameters=fixed_hyperparameters,
         output_path=model_path,
-        base_job_name=f"churn-train",
+        base_job_name=base_job_name,
         sagemaker_session=sagemaker_session,
         role=role,
+        use_spot_instances=True,
+        max_run=1800,
+        max_wait=3600,
+        checkpoint_s3_uri=checkpoint_s3_uri,
+        checkpoint_local_path=checkpoint_local_path
     )
+    # hyperparameter ranges
     hyperparameter_ranges = {
     "eta": ContinuousParameter(0, 1),
     "min_child_weight": ContinuousParameter(1, 10),
@@ -172,11 +202,15 @@ def get_pipeline(
     "max_depth": IntegerParameter(1, 10),
     }
     objective_metric_name = "validation:auc"
-    
+
+    # -------------------------
+    # ------ TUNING STEP ------
+    # -------------------------
+
     step_tuning = TuningStep(
-    name = "ChurnHyperParameterTuning",
-    tuner = HyperparameterTuner(xgb_train, objective_metric_name, hyperparameter_ranges, max_jobs=2, max_parallel_jobs=2),
-    inputs={
+        name="ChurnHyperParameterTuning",
+        tuner=HyperparameterTuner(xgb_train, objective_metric_name, hyperparameter_ranges, max_jobs=2, max_parallel_jobs=2),
+        inputs={
             "train": TrainingInput(
                 s3_data=step_process.properties.ProcessingOutputConfig.Outputs[
                     "train"
@@ -192,7 +226,7 @@ def get_pipeline(
         },
     )
     
-    # processing step for evaluation
+    # container for evaluation step
     script_eval = ScriptProcessor(
         image_uri=image_uri,
         command=["python3"],
@@ -207,6 +241,11 @@ def get_pipeline(
         output_name="evaluation",
         path="evaluation.json",
     )
+
+    # -------------------------
+    # ---- EVALUATION STEP ----
+    # -------------------------
+
     step_eval = ProcessingStep(
         name="ChurnEvalBestModel",
         processor=script_eval,
@@ -229,8 +268,11 @@ def get_pipeline(
         code=f"s3://{default_bucket}/input/code/evaluate.py",
         property_files=[evaluation_report],
     )
-    
-    # step to create model 
+
+    # -------------------------
+    # ---- SageMaker Model ----
+    # -------------------------
+
     model = Model(
         image_uri=image_uri,        
         model_data=step_tuning.get_top_model_s3_uri(top_k=0,s3_bucket=default_bucket,prefix="output"),
@@ -246,21 +288,26 @@ def get_pipeline(
         model=model,
         inputs=inputs,
     )
-    
+    # ----------------------
+    # --- TRANSFORM STEP ---
+    # ----------------------
     # step to perform batch transformation
+
     transformer = Transformer(
     model_name=step_create_model.properties.ModelName,
-    instance_type="ml.m5.xlarge",
+    instance_type="ml.t3.medium",
     instance_count=1,
     output_path=f"s3://{default_bucket}/ChurnTransform"
     )
+
     step_transform = TransformStep(
     name="ChurnTransform",
     transformer=transformer,
     inputs=TransformInput(data=batch_data,content_type="text/csv")
     )
-    
-    # register model step that will be conditionally executed
+    # ----------------------------
+    # ---- MODEL REGISTRATION ----
+    # ----------------------------
     model_metrics = ModelMetrics(
     model_statistics=MetricsSource(
         s3_uri="s3://{}/evaluation.json".format(default_bucket),
@@ -274,7 +321,7 @@ def get_pipeline(
         content_types=["text/csv"],
         response_types=["text/csv"],
         inference_instances=["ml.t2.medium", "ml.m5.large"],
-        transform_instances=["ml.m5.large"],
+        transform_instances=["ml.t3.medium"],
         model_package_group_name=model_package_group_name,
         model_metrics=model_metrics,
     )
@@ -300,13 +347,29 @@ def get_pipeline(
         depends_on= [step_create_model.name]
     )
     
-    # clarify step
+    # ----------------------
+    # --- CLARIFY STEP ---
+    # ----------------------
     data_config = sagemaker.clarify.DataConfig(
     s3_data_input_path=f's3://{default_bucket}/output/train/train.csv',
     s3_output_path=bias_report_output_path,
-        label=0,
-        headers= ['target','esent','eopenrate','eclickrate','avgorder','ordfreq','paperless','refill','doorstep','first_last_days_diff','created_first_days_diff','favday_Friday','favday_Monday','favday_Saturday','favday_Sunday','favday_Thursday','favday_Tuesday','favday_Wednesday','city_BLR','city_BOM','city_DEL','city_MAA'],
-        dataset_type="text/csv",
+    label="Churn",  # target column
+    headers=[
+        "Call Failure",
+        "Complains",
+        "Subscription Length",
+        "Charge Amount",
+        "Seconds of Use",
+        "Frequency of use",
+        "Frequency of SMS",
+        "Distinct Called Numbers",
+        "Age Group",
+        "Tariff Plan",
+        "Status",
+        "Age",
+        "Customer Value",
+        "Churn"
+    ],dataset_type="text/csv",
     )
     clarify_processor = sagemaker.clarify.SageMakerClarifyProcessor(
         role=role,
@@ -354,13 +417,20 @@ def get_pipeline(
         ),
         right=0.75,
     )
+    # ----------------------
+    # --- CONDITION STEP ---
+    # ----------------------
     step_cond = ConditionStep(
         name="CheckAUCScoreChurnEvaluation",
         conditions=[cond_lte],
         if_steps=[step_register, step_create_model, step_config_file,step_transform,step_clarify],
         else_steps=[],
     )
-    # pipeline instance
+
+    # --------------------
+    # ----- PIPELINE -----
+    # --------------------
+
     pipeline = Pipeline(
         name=pipeline_name,
         parameters=[
