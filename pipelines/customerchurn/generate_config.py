@@ -32,9 +32,23 @@ if __name__ == "__main__":
         
     # Generate the SageMaker Clarify Config File
     s3_output_path=args.bias_report_output_path,
-        label=0,
-        headers= ['target','esent','eopenrate','eclickrate','avgorder','ordfreq','paperless','refill','doorstep','first_last_days_diff','created_first_days_diff','favday_Friday','favday_Monday','favday_Saturday','favday_Sunday','favday_Thursday','favday_Tuesday','favday_Wednesday','city_BLR','city_BOM','city_DEL','city_MAA'],
-        dataset_type="text/csv",
+        label="Churn",  # target column
+    headers=[
+        "Call Failure",
+        "Complains",
+        "Subscription Length",
+        "Charge Amount",
+        "Seconds of Use",
+        "Frequency of use",
+        "Frequency of SMS",
+        "Distinct Called Numbers",
+        "Age Group",
+        "Tariff Plan",
+        "Status",
+        "Age",
+        "Customer Value",
+        "Churn"
+    ],dataset_type="text/csv",
     )
     model_config = sagemaker.clarify.ModelConfig(
         model_name=args.modelname,
