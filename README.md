@@ -55,8 +55,6 @@ These kinds of classification problems can be tackled using models like logistic
 
 After framing the business problem and understanding the cost dynamics of churn prediction, the next step is figuring out how to operationalize the solution. Machine learning in production is a never-ending process. Models must be continuously monitored, evaluated, and adapted as new data arrives and customer behavior evolves.
 
-To make this process easier and more reliable, AWS offers a powerful solution called SageMaker Pipelines. Pipelines help automate and standardize the entire machine learning workflow, ensuring that best practices (reproducibility, scalability, and continuous improvement) are built directly into the churn prediction solution.
-
 ![alt text](ML_lifecycle.png)
 
-SageMaker Pipelines provides a structured way to automate the machine learning lifecycle through a series of interconnected steps. These steps form a directed acyclic graph (DAG), ensuring that each stage flows logically without loops. A pipeline can include tasks such as data preprocessing, model training, hyperparameter tuning, model registration, and endpoint configuration, etc. For our use case, we will focus on the following stages: data processing, training, tuning, evaluation, and deployment.
+Operationalizing the Solution
