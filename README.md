@@ -5,8 +5,58 @@ Customer churn is one of the most critical challenges faced by large organizatio
 ### ML Problem Framing
 
 What if we could build a solution that not only predicts which customers are likely to leave but also explains why? This would empower businesses to take proactive action and address the underlying causes of churn.
+
 - This is a binary classification problem. The objective is to predict where a customer is going to leave or stay.
 - **Churn = 1** → Customer will leave.
 - **Churn = 0** → Customer will stay.
 
 To evaluate such a model, we use the confusion matrix and associated metrics such as precision, recall, and F1 score.
+
+![alt text](confusion_matrix.png)
+
+In real world terms, not all prediction outcomes have the same consequences. Some errors cost the company far more than others.
+Each category tells us what happened, how the company might respond, and what cost is involved.
+
+1.  True Positive (TP) → Correctly predicted churner.
+
+        Action: Offer retention incentive → customer stays.
+
+        Cost: cost_associated_with_retention_incentive
+
+2.  False Positive (FP) → Predicted churn, but customer would have stayed anyway.
+
+        Action: Incentive wasted.
+
+        Cost: cost_associated_with_retention_incentive
+
+3.  False Negative (FN) → Predicted as staying, but customer actually churns.
+
+        Action: None taken → customer lost.
+
+        Cost: cost_associated_with_churn (very high).
+
+4.  True Negative (TN) → Correctly predicted as staying.
+
+        No cost
+
+It is important to consider the cost associated with the situation.
+
+#### The Simplest Cost Function
+
+Cost = _cost_associated_with_retention_incentive_( TP + FP )  +  _cost_associated_with_churn (FN)_
+
+This will not always hold true in every business context, but given the limited information available, it is reasonable to assume that the cost of churn ≫ cost of retention. Under this assumption, the modeling goal should be to minimize false negatives. In practice, this means preferring a high-recall model that captures as many potential churners as possible, even if it results in more false positives.
+
+### What type of classification model should we choose?
+
+These kinds of classification problems can be tackled using models like logistic regression, random forests, or XGBoost. There are also more complex models out there, but since we need some level of interpretability, it’s important to choose something that’s advanced enough to capture complex patterns while still being understandable when we look at the predictions.
+
+### Operationalizing the Solution
+
+After framing the business problem and understanding the cost dynamics of churn prediction, the next step is figuring out how to operationalize the solution. Machine learning in production is a never-ending process. Models must be continuously monitored, evaluated, and adapted as new data arrives and customer behavior evolves.
+
+To make this process easier and more reliable, AWS offers a powerful solution called SageMaker Pipelines. Pipelines help automate and standardize the entire machine learning workflow, ensuring that best practices (reproducibility, scalability, and continuous improvement) are built directly into the churn prediction solution.
+
+![alt text](ML_lifecycle.png)
+
+SageMaker Pipelines provides a structured way to automate the machine learning lifecycle through a series of interconnected steps. These steps form a directed acyclic graph (DAG), ensuring that each stage flows logically without loops. A pipeline can include tasks such as data preprocessing, model training, hyperparameter tuning, model registration, and endpoint configuration, etc. For our use case, we will focus on the following stages: data processing, training, tuning, evaluation, and deployment.
